@@ -1,0 +1,491 @@
+% This is samplepaper.tex, a sample chapter demonstrating the
+% LLNCS macro package for Springer Computer Science proceedings;
+% Version 2.21 of 2022/01/12
+
+\documentclass[runningheads]{llncs}
+
+% 新增：LNCS 格式处理作者/单位关联的必备包（解决\maketitle依赖问题）
+\usepackage{amsmath}
+\usepackage[utf8]{inputenc}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath} % 用于数学符号（如\hat、\sigma^2等）
+\usepackage{booktabs}  
+\usepackage{caption}   
+
+\usepackage{amssymb}   
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+
+% 保留原注释（无需修改）
+%\usepackage{color}
+%\renewcommand\UrlFont{\color{blue}\rmfamily}
+%\urlstyle{rm}
+
+\begin{document}
+\title{SCMA-OAC Enabled Federated Learning}
+\authorrunning{Y. Zhang et al.}
+% 作者信息（确保\inst{1}与\institute对应）
+% \author{
+% Yujie Zhang\inst{1} \and  
+% Xianzhong Li\inst{1} \and  
+% Yuzhi Yang\inst{2} \and  
+% Tianhao Guo\inst{1}
+% }              
+%\authorrunning{Y. Zhang, X. Li, Y. Yang \& T. Guo}  % 短标题作者列表：保留所有作者姓氏首字母，符合多作者文献规范
+\author{Yujie Zhang\inst{1,2}
+\and Xianzhong Li\inst{1,2}
+\and Yandong Zhao\inst{4}\\ Weimin Liu\inst{4}
+\and Yuzhi Yang\inst{3} 
+\and Tianhao Guo\inst{1,2}*
+}
+
+\institute{
+  Shanxi University, Taiyuan 030006, China, 
+  \email{tianhao\_guo@sxu.edu.cn}
+  \and
+  Shanxi Key Laboratory of Wireless Communication and Detection, Taiyuan 030006, China 
+  \and
+  College of Computing and Mathematical Sciences Khalifa University, Abu Dhabi, UAE
+  \and
+  North Automatic Control Technology Institute, Taiyuan 030006, China
+}
+% \institute{
+% \inst{1} Shanxi University, Taiyuan 030006, Shanxi, China \\  % 山西大学（对应作者1、2、4）
+% \inst{2} Zhejiang University, Hangzhou 310058, Zhejiang, China \\  % 浙江大学（对应作者3，补充杭州邮编310058，符合学术格式）
+% \email{yz727264@gmail.com}  % 主联系人邮箱（原文保留）
+% \qquad \textit{Authors: Yujie Zhang, Xianzhong Li, Yuzhi Yang, Tianhao Guo}  % 完整作者列表，补充Xianzhong Li和Yuzhi Yang，修正原文遗漏
+% }
+
+% 此时\maketitle应无报红（若仍有，看场景2）
+\maketitle  % 生成标题页（LNCS格式必备命令）
+% typeset the header of the contribution  % 注释单独换行，避免语法冲突
+%
+\begin{abstract}
+Federated Learning (FL) enables distributed model training without raw data sharing but faces two key issues: high communication overhead from frequent high-dimensional model update transmission, and potential privacy leakage of local parameters.  
+Over-the-Air Computation (OAC) accelerates model aggregation via wireless channel signal superposition, yet traditional OAC-FL schemes have low spectrum efficiency and insufficient privacy protection—they only encrypt data during transmission, while server aggregation relies on plaintext, risking sensitive information leakage if the server is compromised or data intercepted.  
+To solve these, this paper proposes a novel FL scheme integrating Sparse Code Multiple Access (SCMA) and lightweight Homomorphic Encryption (HE). A parameter-aware dynamic SCMA codebook is designed: centered on client parameter update signals, it builds low-correlation sparse codebooks, adjusts sparsity by prior-round update amplitude, and disables positions of long-term small-variation parameters to eliminate invalid transmissions.  
+A lightweight HE mechanism based on the Learning With Errors (LWE) problem is embedded—local updates are encrypted before transmission, and aggregation is done at the ciphertext level to avoid privacy leakage.  
+MNIST experiments show the scheme reduces communication overhead vs. vanilla FL and enhances privacy, offering a practical solution for FL deployment in resource-constrained, privacy-sensitive scenarios like edge computing.
+
+\keywords{Federated Learning · Over-the-Air Computation · Sparse Code Multiple Access · Homomorphic Encryption · Communication Efficiency · Privacy Protection}
+\end{abstract}
+%
+
+%
+%
+\section{Introduction}
+This work was supported by the Research Project Supported by Shanxi Scholarship Council of China under Grant 2023-005, the Natural Science Foundation of Shanxi Province for Youth under Grant 202303021212014, the National Natural Science Foundation of China (NSFC-12141107).Federated Learning (FL) is a pivotal distributed ML paradigm [1], enabling collaborative global model training with local data to mitigate privacy risks, but faces two core deployment bottlenecks:
+\begin{enumerate}
+\item In each FL round, clients transmit high-dimensional model updates to the server; frequent transmission wastes bandwidth and raises latency, especially in resource-constrained edge networks \cite{wang2019adaptive}.
+\item  Privacy Leakage Risks: Local model updates implicitly contain training data information (e.g., feature distributions, sensitive attributes). Adversaries can reconstruct private data via model inversion or gradient leakage attacks \cite{yin2021comprehensive}, threatening user privacy severely.
+\end{enumerate}
+Over-the-Air Computation (OAC) addresses FL's communication issues by enabling simultaneous client updates; the server aggregates via superimposed signals, reducing communication rounds from \(O(N)\) (N clients) to \(O(1)\) \cite{yang2020federated}, but traditional OAC-FL has limitations:
+\begin{enumerate}
+\item Spectrum Inefficiency: Relying on orthogonal multi-access (e.g., OFDM), each client occupies exclusive resource blocks, limiting concurrent clients and failing to meet large-scale FL demands \cite{you2023broadband}.
+\item Inadequate Privacy Protection: Most schemes only encrypt data during transmission (e.g., TLS), while aggregation is performed on plaintexts—server compromise leads to privacy leakage \cite{10251646}.
+\end{enumerate}
+To address these gaps, this paper proposes a SCMA-OAC-based FL scheme (3-layer collaboration) with key workflows and contributions focusing on communication and privacy optimization:
+\begin{enumerate}
+\item Early OAC-FL research focused on analog signal superposition: Yang\cite{yang2020federated} et al. 's analog scheme is vulnerable to noise/fading ($\geq15\%$ parameter error at SNR$<20$ dB, failing model convergence).
+\item Collaboration Layer: Collaborative Operation of OAC and HE:
+\begin{itemize}
+    \item Clients first encrypt local model updates using lightweight HE (enabling direct ciphertext computation with decrypted results matching plaintext ones, ensuring privacy without prior decryption), then encode and transmit via the dynamic codebook;
+    \item Wireless channels naturally superimpose multi-client signals. The server separates encrypted signals via MPA after reception, aggregates parameters directly at ciphertext level, and updates global model post-decryption, with no plaintext involved.
+\end{itemize}
+\end{enumerate}
+Contribution:The core contribution of this paper is to propose a new paradigm called "Parameter-Aware Physical Layer Adaptation". For the first time, we demonstrate that the inherent sparsity of federated learning model updates can be leveraged to directly and dynamically reconstruct the physical layer transmission strategy (SCMA codebook) of wireless communication, thereby achieving a highly optimized cross-layer collaboration.
+
+\section{Related Work}
+\subsection{OAC for Federated Learning}
+Early OAC-FL research focused on analog superposition: Yang\cite{yang2020federated} et al.’s scheme has high error;
+
+Recent studies combine NOMA with OAC-FL to solve orthogonal access resource limits: Liu\cite{li2023multi} et al.'s NOMA-OAC uses power multiplexing (1 block for 2 clients), doubling spectrum efficiency at 20 clients. But it needs strict power control—over 10 clients cause more conflicts and higher decoding errors, only fitting $\leq$$10$ clients.
+
+In contrast, SCMA (overloaded NOMA with sparse codebooks) enables "users $>$ resource blocks" via code domain multiplexing. Ma \cite{ma2018sparse}et al.confirmed its 4x overloaded transmission (users/blocks$=$$4$) and low symbol error rate ($<$$10^{-3}$) in 5G, making it ideal for large-scale FL. However, existing SCMA studies focus on physical layer optimization; its OAC-FL integration has two gaps: no codebook design for FL parameter dynamic sparsity (fixed codebooks waste resources), and no parameter transmission-model aggregation co-optimization (underutilizing OAC's superposition, leaving overhead unoptimized).
+
+Additionally, some studies improve OAC-FL reliability via channel estimation/compensation: You et al. \cite{you2023broadband}’s broadband digital OAC uses frequency-domain equalization (1 Gbps under 20 MHz) but adds >30\% edge device latency, conflicting with edge computing’s low-latency need and unfit for resource-constrained terminals (e.g., IoT sensors).
+\subsection{Privacy-Enhanced Federated Learning}
+Privacy protection technologies in federated learning need to strike a balance between "privacy security" and "model performance/system efficiency". Currently, mainstream technologies can be divided into three categories:
+\begin{enumerate}
+\item Differential Privacy (DP) achieves privacy protection by adding noise following specific distributions (e.g., Laplacian, Gaussian) to model updates . Dwork\cite{dwork2014differential} et al.'s $(\varepsilon, \delta)$-differential privacy framework established its theoretical foundation, where smaller $\varepsilon$ (privacy budget) indicates stronger protection. However, DP\cite{10251646}'s core limitation is the "noise-accuracy" trade-off: strict privacy (e.g., $\varepsilon < 1$) requires substantial noise, slowing convergence and degrading performance. For example, training a CNN on MNIST with $\varepsilon = 0.5$ reduces final accuracy by 8\%-12\% compared to non-DP scenarios .
+\item Homomorphic Encryption (HE) supports ciphertext computation, fitting OAC's "signal superposition aggregation" and becoming an OAC-FL privacy hotspot. Zhang\cite{zheng2019sparse} et al. proposed BGV-based HE-OAC, but BGV's RLWE causes high complexity (500ms/1024D encryption, 1000x ciphertext expansion). Lightweight HE (LWE-based) balances privacy-efficiency, yet its OAC integration is rarely studied \cite{yao1982protocols}.
+\end{enumerate}
+To address the inefficiency of traditional HE, researchers proposed lightweight HE based on LWE: López-Alt\cite{lopez2012fly} et al.'s  multi-key scheme reduces ciphertext expansion to <100 and encryption latency to <100 ms. However, its OAC-FL integration faces two challenges: HE ciphertexts (integers/polynomials) require extra conversion for OAC analog superposition (adding overhead); OAC's superposition noise lacks privacy analysis (may compromise HE security or cause decryption errors).
+
+Additionally, some studies integrate multiple privacy technologies: Zhang\cite{10251646} et al.proposed PrivacyEAFL (combining DP and secure aggregation) for mobile crowdsensing FL. It relies on centralized key management (risk of single-point failure) and ignores wireless transmission privacy leaks (e.g., signal interception, identity forgery), resulting in an incomplete privacy chain unsuitable for OAC-FL wireless scenarios.
+
+\section{Parameter-Aware Dynamic Sparse SCMA Codebook Design}
+The proposed scheme has four core modules: SCMA Codebook Generator, Light-\\ weight HE Module, client-side SCMA-OAC Transmitter, and server-side SCMA-OAC Receiver.  
+
+In the SCMA-OAC federated learning process, the client first uses the SCMA Codebook Generator to dynamically generate an exclusive sparse codebook ($C_u$) based on its ID, resource block count,and initial sparsity ($\rho_0=0.1$, proportion of resource blocks with non-zero symbols).  
+The SCMA-OAC Transmitter then receives locally trained model parameter updates ($\Delta W_u$), the exclusive codebook ($C_u$), and the HE public key, and sequentially performs three operations:
+\begin{enumerate}
+    
+\item The encryption of the model parameter update\cite{lopez2012fly}
+   \[
+   E(\Delta W_u) = \Delta W_u + \varepsilon + pk \tag{1}
+   \]
+  
+\item Encoding with the exclusive codebook 
+   \[
+   S_u = C_u \odot E(\Delta W_u) \tag{2}
+   \]
+   This operation maps the parameter signal to specific resource blocks, ensuring a one-to-one correspondence between parameters and codebook positions. The symbol $\odot$ denotes the element-wise product.
+\item Noise addition:During wireless transmission, the signal is affected by inherent channel noise. Here, the channel noise is modeled as Additive White Gaussian Noise (AWGN) with mean 0 and variance \(\sigma^2\) (i.e., \(n \sim \mathcal{CN}(0, \sigma^2)\)), where \(\sigma^2\) is determined by the channel Signal-to-Noise Ratio (SNR) to avoid excessive noise interfering with subsequent signal separation. The noisy signal is expressed as:
+   \[
+   S_u^{\text{noise}} = S_u + n \tag{3}
+   \]
+\end{enumerate}
+These operations generate a noisy SCMA signal, which is transmitted through a wireless channel . Signals from multiple clients are superimposed to form an aggregated signal:
+\[
+S_{\text{agg}} = \sum S_u^{\text{noise}} \tag{4}
+\]
+
+
+Server-side SCMA-OAC Receiver gets aggregated signals and clients’ \(\{C_u\}\), uses MPA to separate encrypted updates, aggregates to \(E(\Delta W_{\text{agg}})\) via weighted average. Lightweight HE Module decrypts it with \(sk\) (function: \(D(E(\Delta W_{\text{agg}})) = E(\Delta W_{\text{agg}}) - sk \cdot \alpha\), \(\alpha=0.1\) for OAC distortion compensation), outputs \(\Delta W_{\text{agg}}\) for global model iteration, finishing the secure loop.
+
+\begin{figure}
+\centering
+\includegraphics[width=\textwidth]{zyj.jpg}
+\caption{Flowchart of Encrypted Transmission and Aggregation for SCMA-OAC Federated Learning Model Parameters} \label{fig1}
+\end{figure}
+\subsection{Core Principles of Codebook Design}
+This paper’s codebook design follows "parameter-driven, low-correlation, dynamic optimization" to solve two issues in traditional SCMA-OAC-FL: fixed codebook resource waste and low aggregation efficiency. It adheres to three principles.
+\begin{enumerate}
+\item Parameter Signal Dominance: Codebook non-zero positions, symbol allocation, and sparsity are based on client model parameter update signals, avoiding static designs decoupled from parameter characteristics.
+\item Low Correlation Guarantee: Random complex symbols (via QPSK modulation) with allocation tied to user/resource block indices minimize cross-client codebook correlation.
+\item Elimination of Invalid Transmissions: A parameter amplitude threshold sets codebook positions for long-term small-variation parameters to 0, terminating invalid parameter channel occupation.
+\end{enumerate}
+
+\subsection{Codebook Initialization Design}
+The codebook initialization phase aims for "low initial sparsity and strong symbol distinguishability," with the specific process as follows:
+\begin{enumerate}
+\item Basic Parameter Setting: Let the number of clients be $U$ and the number of resource blocks be $R$. The initial codebook sparsity is $\rho_{\text{init}} = 0.1$, meaning each client initially occupies only $\lceil R \times 0.1 \rceil$ non-zero resource blocks to minimize initial resource consumption.
+
+\item Random Complex Symbol Generation: Using the standard QPSK symbol set 
+\begin{equation*}
+    S = \left\{ \frac{1+1j}{\sqrt{2}}, \frac{1-1j}{\sqrt{2}}, \frac{-1+1j}{\sqrt{2}}, \frac{-1-1j}{\sqrt{2}} \right\}
+\end{equation*}
+(power-normalized), random complex symbols are assigned to non-zero resource blocks $r$ of each client $u$ as $s_{u,r} = S_{\text{randint}(0,3)}$, where $\text{randint}(0,3)$ denotes a random integer index between 0 and 3.
+
+subsection{Low Correlation Control}
+To avoid high overlap of codebook symbols among different clients, a dual strategy of "user-resource block index associated adjustment + phase shifting" is adopted to achieve the low-correlation goal: 
+first, an association adjustment rule is constructed based on user ID ($u$) and resource block index ($r$), 
+and a phase shift $e^{j \cdot (u+r) \times \pi/4}$ (step size of $\pi/4$) is applied to the initial symbol $s_{u,r}$ 
+of resource block $r$ for client $u$, resulting in the final symbol:
+\begin{equation}
+s_{u,r}^{\text{final}} = s_{u,r} \times e^{j \cdot (u+r) \times \pi/4} \tag{5}
+\end{equation}
+This phase shift reduces the inter-user symbol correlation by changing the phase characteristics of symbols from different clients, 
+ultimately ensuring that the correlation coefficient between the codebooks of any two clients satisfies:
+\begin{equation}
+\rho(C_u, C_v) \leq 0.2 \quad (u \neq v)\tag{6}
+\end{equation}
+where $C_u$ and $C_v$ denote the codebooks of client $u$ and client $v$, respectively.
+
+
+
+\item Initial Codebook Construction: The initial codebook $C_u^{(0)}$ for client $u$ is defined as:
+\begin{equation}
+    C_u^{(0)} = \left[ c_{u,0}^{(0)}, c_{u,1}^{(0)}, \ldots, c_{u,R-1}^{(0)} \right], \quad c_{u,r}^{(0)} = 
+    \begin{cases} 
+    s_{u,r}, & r \in P_u^{(0)} \\ 
+    0, & r \notin P_u^{(0)} 
+    \end{cases}
+    \label{eq:initial_codebook}\tag{7}
+\end{equation}
+where $P_u^{(0)}$ is the initial set of non-zero resource blocks (randomly selecting $\lceil R \times 0.1 \rceil$ resource blocks), and $0$ indicates unoccupied resource blocks.
+\end{enumerate}
+
+\subsection{Dynamic Sparsity Adjustment Based on Parameter Signals}
+To adapt to the dynamic characteristics of parameter updates, codebook sparsity is adjusted each round based on the previous round's client parameter update signals, with the specific logic as follows:
+\begin{enumerate}
+\item Parameter Update Amplitude Statistics: Let the model parameter update vector of client $u$ in round $t$ be $\Delta W_u^{(t)} = [\Delta w_{u,1}^{(t)}, \Delta w_{u,2}^{(t)}, \ldots, \Delta w_{u,K}^{(t)}]$ (where $K$ is the total number of parameters). The mean amplitude of parameter updates in this round is calculated as:
+\begin{equation*}
+    \mu_u^{(t)} = \frac{1}{K}\sum_{k=1}^K |\Delta w_{u,k}^{(t)}|\tag{8}
+\end{equation*}
+
+\item Dynamic Sparsity Calculation: The codebook sparsity $\rho_u^{(t+1)}$ for client $u$ in round $t+1$ is determined by the mean parameter update amplitude from the previous round:
+\begin{equation}
+    \rho_u^{(t+1)} = \min\left( \rho_{\text{init}} + 0.05 \times \frac{\mu_u^{(t)}}{\mu_{\text{max}}}, 0.6 \right)
+    \label{eq:dynamic_sparsity}\tag{9}
+\end{equation}
+where $\mu_{\text{max}}$ is the maximum of the mean parameter update amplitudes of all clients in round $t$.
+
+\item Non-zero Resource Block Reallocation: The number of non-zero resource blocks in round $t+1$ is calculated as $N_u^{(t+1)} = \lceil R \times \rho_u^{(t+1)} \rceil$ based on $\rho_u^{(t+1)}$. On the basis of retaining non-zero resource blocks corresponding to valid parameters from the previous round, new resource blocks are added to reach $N_u^{(t+1)}$, ensuring resource allocation matches parameter update activity.
+\end{enumerate}
+
+\subsection{Parameter Amplitude Threshold-Driven Codebook Position Fixing Mechanism}
+To completely eliminate transmission of long-term invalid parameters, a parameter amplitude threshold $\tau$ (set to $0.005$ in experiments) is introduced to permanently set codebook positions corresponding to parameters meeting the "small variation" condition to $0$, with specific rules as follows:
+\begin{enumerate}
+\item Small-Variation Parameter Determination: If a model parameter $k$ of client $u$ has update amplitudes satisfying $|\Delta w_{u,k}^{(t)}| < \tau$, $|\Delta w_{u,k}^{(t+1)}| < \tau$, and $|\Delta w_{u,k}^{(t+2)}| < \tau$ in three consecutive transmission rounds, the parameter is \textit{determined as} a "long-term small-variation parameter" with negligible contribution to global model updates.
+
+\item Permanent Zero Setting for Codebook Positions: Locate the resource block position $r_k$ corresponding to parameter $k$ in the codebook, permanently set $c_{u,r_k}$ to $0$, and no longer assign symbols or adjust the state of this position in subsequent rounds.
+
+\item Normal Allocation for Remaining Positions: Except for permanently zero-set positions, other resource block positions continue to be normally allocated non-zero symbols according to the "dynamic sparsity adjustment" rules, ensuring reliable transmission of valid parameters.
+\end{enumerate}
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.8\textwidth]{59b58656-61ab-4a98-8531-c7921f98e72e.png} % 调整宽度为页面宽度的80%，避免过宽
+\caption{Parameter-Aware Dynamic Codebook Mechanism} 
+\label{fig1}
+\end{figure}
+\subsection{SCMA Encoding and Signal Generation Process}
+Based on the above codebook design, the SCMA encoding process for client parameter signals is as follows:
+\begin{enumerate}
+\item Parameter Signal Preprocessing: For the $t$-th round model parameter update $\Delta W_u^{(t)}$ of client $u$, filter out parameters identified as "long-term small-variation" and retain valid parameters $\Delta W_u^{(t),\text{eff}}$.
+
+\item Parameter-Codebook Position Mapping: Map valid parameters $\Delta W_u^{(t),\text{eff}}$ to non-zero resource block positions in the codebook according to preset indices, ensuring a one-to-one correspondence between parameters and codebook positions.
+
+\item QPSK Symbol Modulation: For mapped non-zero resource block positions, use low-correlation QPSK random complex symbols generated in the current round for modulation to generate complex signals:
+\begin{equation*}
+    S_{u,r}^{(t)} = \Delta w_{u,k}^{(t)} \times c_{u,r}^{(t)}\tag{10}
+\end{equation*}
+\item Transmission Signal Generation: Integrate all resource block signals to form the final transmission signal $S_u^{(t)} = [S_{u,0}^{(t)}, S_{u,1}^{(t)}, \ldots, S_{u,R-1}^{(t)}]$, where signal values at permanently zero-set positions remain $0$ to avoid invalid channel occupation.
+\begin{algorithm}[h]
+\caption{Transmission Signal Generation}
+\label{alg:signal_gen}
+\begin{algorithmic}[1]
+\Require
+Client \( u \), resource blocks \( R \), \( \rho_{\text{init}}=0.1 \), \( tau=0.005 \), \( \Delta W_u^{(t)}, \Delta W_u^{(t-1)}, \Delta W_u^{(t-2)} \), \( \mu_{\text{max}}^{(t-1)} \)
+\Ensure
+Transmission signal \( S_u^{(t)} \)
+
+\State \textbf{Codebook Init (\( t=1 \)):}
+\State \( N_u^{(1)} = \lceil R \rho_{\text{init}} \rceil \), rand select \( P_u^{(1)} \).
+\State build \( C_u^{(1)} \) by (5)-(7).
+\State Init\( Z_u = \emptyset \)(zero-set positions in the codebook).
+
+\State \textbf{Sparsity Update (\( t \geq 2 \)):}
+\State \( \mu_u^{(t-1)} \) by (8), \( \rho_u^{(t)} \) by (9), \( N_u^{(t)} = \lceil R \rho_u^{(t)} \rceil \).
+\State Form \( P_u^{(t)} \), update \( C_u^{(t)} \) (new blocks use Step 1 symbols, \( Z_u \) = 0).
+
+\State \textbf{Update \( Z_u \):}
+\For{each parameter \( k \) (mapped to \( r_k \))}
+    \If{3 consecutive updates \( < tau \)}
+        \State \( Z_u \leftarrow Z_u \cup \{r_k\} \).
+    \EndIf
+\EndFor
+
+\State \textbf{Generate \( S_u^{(t)} \):}
+\State Retain \( \Delta W_u^{(t), \text{eff}} \) (exclude \( Z_u \)-mapped), map to \( C_u^{(t)} \setminus Z_u \).
+\State Modulate by (10), set invalid positions to 0, integrate to \( S_u^{(t)} \).
+
+\Return \( S_u^{(t)} \)
+\end{algorithmic}
+\end{algorithm}
+
+\footnotesize{Note:tau represents a set threshold}
+\end{enumerate}
+\section{Homomorphic Encryption Design and Implementation}
+\subsection{Background and Objectives of Homomorphic Encryption Scheme Design}
+In federated learning (FL) systems integrating SCMA Over-the-Air Computation (OAC), model parameters are transmitted across distributed edge devices. Plaintext transmission risks exposing sensitive information (e.g., local data features) to eavesdropping or tampering. Traditional encryption requires decryption before aggregation, creating server-side privacy risks. A lightweight homomorphic encryption (HE) scheme is proposed with core goals:
+ \begin{enumerate}
+ \item binding encryption keys to user identities to prevent identity forgery.
+ \item supporting secure ciphertext aggregation without intermediate decryption.
+ \item minimizing performance overhead to adapt to resource-constrained edge devices.
+ \end{enumerate}
+\subsection{Core Module Design of Homomorphic Encryption}
+\begin{enumerate}
+\item This mechanism maps user IDs to unique encryption credentials, prioritizing determinism, security and compatibility. User IDs are hashed into fixed seeds to eliminate cross-device randomness. Private keys use low-dimensional sparse tensors (restricted values) for edge efficiency; public keys add controlled small noise to private keys for attack resistance. Core features: identical IDs have fixed key pairs (enabling stable historical decryption), different IDs have independent pairs (preventing confusion), supporting federated learning parameter security.
+
+\item Model Parameter Encryption Process:
+The encryption targets FL model update parameters (local-global model differences) to avoid redundant full-model encryption, adding two protection layers to plaintext parameters.
+\begin{enumerate}
+\item Gaussian noise: \(N(0, 0.01^2)\)
+\begin{itemize}
+    \item Effect: \(\text{Accuracy loss} < 0.5\%\) (no convergence disruption)
+    \item Function: Mask raw parameter distribution
+\end{itemize}
+\item Public key-derived perturbation: \(P_u = 0.005 \times \text{Tensor}(pk_u)\)
+\begin{itemize}
+    \item Property: \(\dim(P_u) = \dim(\text{Original parameters})\)
+    \item Advantages:
+    \begin{itemize}
+        \item Bind ciphertext to user u
+        \item Direct SCMA embedding (no dimension conversion) → Reduced communication overhead
+    \end{itemize}
+\end{itemize}
+\end{enumerate}
+\item OAC Signal Superposition, Ciphertext Extraction, and Decryption-Aggregation with Identity Verification
+\begin{enumerate}
+    \item OAC Signal Superposition and Ciphertext Extraction:
+    \begin{enumerate}
+\item The client generates a noise-added ciphertext signal by superimposing the ciphertext-coded signal \(S_u\) with wireless channel-inherent noise \(n_u\). The mathematical expression is:
+\begin{equation*}
+    S_u^{noise} = S_u + n_u\tag{11}
+\end{equation*}
+Among them, \(n_u\) follows a Gaussian distribution with a mean of 0, and its intensity is controlled within a range that does not affect subsequent signal separation.
+\item Noise-added ciphertext signals from multiple clients naturally superimpose during wireless transmission. The server receives the aggregated signal as:
+\begin{equation*}
+    S_{agg} = \sum_{u=1}^U S_u^{noise} = \sum_{u=1}^U \left[ C_u \odot E(\Delta W_u) + n_u \right]\tag{12}
+\end{equation*}
+This process reduces traditional Federated Learning (FL) communication rounds from \(O(U)\) to \(O(1)\), greatly boosting communication efficiency. It is also fully compatible with SCMA’s (Sparse Code Multiple Access) non-orthogonal transmission feature of "multiple users sharing resource blocks".
+\item On the server side, the Message Passing Algorithm (MPA) — combined with all clients’ SCMA codebooks \(\{C_u\}_{u=1}^U\) — separates each client’s ciphertext-coded signal from the aggregated signal \(S_{agg}\). Pure ciphertext \(E(\Delta W_u)\) is then extracted via the SCMA codebook’s inverse mapping \(C_u^{-1}\) (to cancel the encoding element-wise product). The formula is:
+\begin{equation*}
+    E(\Delta W_u) = \text{MPA}(S_{agg}, \{C_u\}_{u=1}^U) \odot C_u^{-1}\tag{13}
+\end{equation*}
+It can effectively filter out channel noise and multi-user interference, ensuring the reliability of subsequent subsequent ciphertext aggregation.
+\end{enumerate}
+\item Decryption and Aggregation with Identity Verification:
+\begin{enumerate}
+\item Pre-identity Verification: The server verifies separated ciphertext \(E(\Delta W_u)\): generates SHA-256 hash \(H_{\text{declared}}\) from sender’s claimed ID, compares with embedded hash \(H_{\text{embedded}}\); legitimate if error ≤ 1e-5 (tolerance offsets transmission noise). Formulation:
+\begin{equation*}
+\text{Legitimacy}(E(\Delta W_u)) = \begin{cases} 
+\text{Valid}, & |H_{\text{declared}} - H_{\text{embedded}}| \leq 10^{-5} \\ 
+\text{Invalid}, & \text{Otherwise} 
+\end{cases}
+\end{equation*}
+Only legitimate ciphertexts enter the aggregation process, effectively filtering out malicious attacks such as 5\% fake ID injection.
+\item Using additive homomorphic property, legitimate ciphertexts undergo element-wise weighted summation to generate aggregated ciphertext \(E(\Delta W_{\text{agg}})\):
+
+\[
+E(\Delta W_{\text{agg}}) = \sum_{u=1}^U w_u \cdot E(\Delta W_u)\tag{14}
+\]
+
+where \(w_u\) (client \(u\)'s aggregation weight) satisfies \(\sum_{u=1}^U w_u = 1\); default is equal weights (\(w_u = 1/U\), with \(U\) being total legitimate clients).
+
+\item The server decrypts the aggregated ciphertext with the private key \(sk\) matching the user ID, introducing a decryption calibration coefficient \(\alpha\) to compensate for OAC transmission distortion. The aggregated plaintext parameters are recovered as:
+
+\begin{equation*}
+\Delta W_{\text{agg}} = \alpha \cdot D(E(\Delta W_{\text{agg}}), sk) - \overline{\varepsilon}\tag{15}
+\end{equation*}
+
+where \(\overline{\varepsilon} = \sum_{u=1}^U w_u \cdot \varepsilon_u\) (aggregated noise mean) is removed post-decryption to avoid noise accumulation affecting model convergence. \(\Delta W_{\text{agg}}\) is used directly for global model update.
+    
+
+\end{enumerate}
+\end{enumerate}
+
+\item Summary of Scheme Advantages:
+The proposed homomorphic encryption scheme achieves three-fold optimization for SCMA-OAC-based federated learning: 
+
+\begin{enumerate}
+\item  Identity security: Key-user ID binding prevents identity forgery and malicious data injection.
+\item  Privacy preservation: Additive homomorphism and noise perturbation ensure end-to-end parameter privacy. 
+\item  Efficiency: Dimension consistency with SCMA codebooks and lightweight operations reduce communication and computational overhead.
+\end{enumerate}
+\end{enumerate}
+
+
+
+
+
+
+
+\section{Performance Analysis}
+\subsection{Experimental Setup}
+To ensure reproducible and reliable performance evaluation, the experimental environment and parameters are standardized as follows:
+\begin{enumerate}
+
+\item Clients: Intel Core i5-1035G1, 8GB RAM; Server: AMD Ryzen 9 5950X, 64GB RAM, RTX 3090. Implemented in Python 3.8/PyTorch 1.10; MNIST used, preprocessed/normalized.
+\item Core Parameters: 20 clients with independent and identically distributed (IID) data partitioning; 50 global training rounds; 5 local training epochs per client; batch size=64; learning rate=0.02 (SGD optimizer with momentum=0.9); SCMA codebook configured with 4 resource blocks and 0.5 sparsity; HE key size=1024 bits; wireless channel SNR=25 dB.
+\end{enumerate}
+
+All experiments are repeated 5 times with a fixed random seed (42) to reduce randomness-induced fluctuations in results.
+\subsection{Model Training Performance}
+Model training performance is evaluated using test accuracy and average test loss, reflecting the impact of SCMA-OAC transmission and HE encryption on FL model convergence.
+
+\begin{enumerate}
+\item Test Accuracy:The OFDM-FL\cite{guo2021over} scheme (green curve) exhibits the best performance, with accuracy rising steadily and converging to 0.98 at the 20th epoch. Traditional-FL (blue curve) follows, reaching a final accuracy of 0.955. SCMA-FL (red curve) has the lowest accuracy, settling at 0.95 and showing more fluctuations during training.
+\item Core Difference in Resource Efficiency:
+OFDM relies on orthogonal subcarriers for parallel transmission, resulting in fixed resource block occupancy that cannot be over-allocated. In contrast, SCMA supports more users within the same frequency band through non-orthogonal sparse codebooks, increasing resource block utilization by over 50\%.
+\item Scenario Adaptability:
+OFDM is suitable for scenarios with extremely high accuracy requirements and sufficient resources (e.g., industrial-grade federated learning). SCMA, on the other hand, is better suited for resource-constrained edge networks (e.g., IoT device collaboration), as it can still maintain efficient communication when bandwidth is limited.
+\end{enumerate}
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\textwidth]{SCMA.png} % 调整宽度为页面宽度的80%，避免过宽
+\caption{Accuracy comparison} 
+\label{fig1}
+\end{figure}
+% 无竖线版本（需在导言区加载 booktabs 宏包）
+\begin{table}[!t]
+\centering
+\caption{Performance Comparison Between OFDM and SCMA Schemes}
+\label{tab:ofdm_scma_comparison}
+\renewcommand{\arraystretch}{1.3}  % 增加行高，提升文字可读性
+\small  % 控制字体大小，适配页面宽度
+% 列格式：|左对齐列(竖线)|居中列(竖线)|居中列|，实现三列两竖线的封闭结构
+\begin{tabular}{|l|c|c|}  
+\hline  % 顶部横线（与竖线衔接形成封闭顶部）
+\textbf{Performance Metric}          & \textbf{OFDM Scheme}       & \textbf{SCMA Scheme}       \\ 
+\hline  % 表头与内容的分隔线
+Test Accuracy                        & 98.0\%                     & 95.0\%                      \\ 
+\hline  % 行分隔线
+Resource Block Utilization           & 16 blocks                  & 8 blocks                    \\ 
+\hline
+Multi-User Concurrency Support       & Up to 16 users             & Up to 32 users              \\ 
+\hline
+Anti-Fading Performance              & Strong                     & Strong                      \\ 
+\hline
+Computational Complexity             & Medium                     & Low                         \\ 
+\hline  % 底部横线（封闭表格底部）
+\end{tabular}\\
+\footnotesize{Note:Using sparse codebooks (0.1→0.6 sparsity) and QPSK, SCMA enables 4x overloaded transmission (8 blocks for 32 users), vs. OFDM’s 16 blocks for 16 users.}
+\end{table}
+
+\subsection{Security Performance Analysis of Homomorphic Encryption Schemes}
+This section focuses on comparing the User ID-Bound Homomorphic Encryption (HE-ID) scheme with the BFV (Brakerski/Fan-Vercauteren) scheme—the most widely used standard homomorphic encryption method in federated learning (FL)—under adversarial attacks.
+
+Both schemes are integrated into the SCMA-OAC FL framework , with HE-ID enhancing BFV through user ID binding (SHA-256 hashing) and triple-layer encryption (Gaussian noise + public key scaling + SCMA mapping).
+
+\begin{enumerate}
+\item Experimental Setup
+    \begin{itemize}
+        \item FL Configuration:Convolutional Neural Network (CNN) Model(1.2M parameters) trained on MNIST dataset for 50 rounds, with 20 client nodes (IID data partition).
+        \item Encryption Schemes:
+            \begin{itemize}
+            \item BFV: Standard configuration via Microsoft SEAL (polynomial modulus degree=8192, single-layer integer encryption) [2].
+            \item HE-ID: BFV + SHA-256 ID hashing + triple-layer encryption ($\sigma=0.01$ noise, $0.005$ scaling factor, SCMA codebook mapping)
+            \end{itemize}
+        \item Attack Scenarios: Model inversion (1000 attempts), identity spoofing (5\% fake IDs), and parameter tampering (10\% ciphertext modification).
+    \end{itemize}
+\item Performance Under Attacks
+ 
+ As shown in Table 2, BFV's single-layer encryption leads to significant vulnerability: 28.6\% attack success rate and 62.4\% data recovery accuracy due to low ciphertext entropy (12.6 bits).
+ 
+ HE-ID's triple-layer defense increases entropy by 33.3\% (16.8 bits), reducing attack success rate to 7.9\% and limiting model accuracy degradation to 0.5\% (vs. 4.2\% for BFV).
+\end{enumerate}
+\begin{table}[!h]
+\centering
+\caption{Model Inversion Attack Performance }
+\label{tab:model_inversion_perf}
+\renewcommand{\arraystretch}{1.2} % 调整行间距
+\resizebox{0.95\linewidth}{!}{ % 自适应宽度
+\begin{tabular}{l c c c}
+\toprule
+\textbf{Metric} & \textbf{BFV Scheme } & \textbf{HE-ID} & \textbf{Improvement} \\
+\midrule
+Attack Success Rate (\%)  & 28.6 ± 2.3 & 7.9 ± 0.8 & -72.3\% \\
+Data Recovery Accuracy (\%)  & 62.4 ± 3.1 & 21.7 ± 1.5 & -65.2\% \\
+Model Accuracy Degradation (\%)  & 4.2 ± 0.4 & 0.5 ± 0.1 & -88.1\% \\
+\bottomrule
+\end{tabular}
+}
+\vspace{1mm}
+\footnotesize{Note: Values are mean ± standard deviation over 5 independent experiments.}
+\end{table}
+HE-ID maps ciphertext to non-orthogonal complex signals via SCMA codebooks (using sparse redundancy for error handling), keeping ciphertext integrity at 98.6\% (+26.8\% vs BFV). With ID hash verification, undetected tampering falls to 1.2\%, model divergence to 1.8\% (-85.4\% vs BFV), verifying strong transmission-layer anti-tampering.
+\section{Conclusion and Future Work}
+\subsection{Conclusion}
+This study optimizes Federated Learning (FL) performance under diverse physical layer transmission technologies and privacy schemes, with comprehensive experiments on the MNIST dataset. Key conclusions are as follows:
+\begin{enumerate}
+\item Model Training Performance: OFDM-FL has the highest accuracy (0.98 at 40 rounds), followed by Traditional-FL (0.955). SCMA-FL lags slightly (0.95) due to intrinsic transmission differences, aligning with its design goals.
+\item Resource Efficiency \& Scalability (see Table 1): SCMA uses 8 blocks (50\% of OFDM) but supports 32 users (twice OFDM), validating the paradigm for dense scenarios.
+
+\item Privacy Protection (see Table 2): The HE-ID scheme outperforms traditional BFV, lowering model inversion attack success rate (28.6\%→7.9\%), data recovery accuracy (62.4\%→21.7\%), and model accuracy loss (4.2\%→0.5\%). It integrates well with the "Parameter-Aware Physical Layer Adaptation" paradigm, avoiding privacy-communication efficiency trade-offs.
+\end{enumerate}
+This study’s core value lies in verifying the shift from "channel-aware" to "task-aware" wireless communication. Its parameter-aware dynamic codebook allocates resources by model parameter "significance" (task contribution) instead of just channel quality, eliminating invalid transmissions. This proves wireless systems can reshape strategies via task data semantics, opening new cross-layer optimization avenues.
+\subsection{Future Work}
+Based on the above, future research will focus on three directions:
+\begin{enumerate}
+\item Hybrid Transmission Strategies: Combine OFDM (high accuracy) and SCMA (resource efficiency) with dynamic switching based on channel conditions (e.g., SNR) and client density—OFDM for high-accuracy needs (e.g., industrial FL), "parameter-aware SCMA" for bandwidth-constrained dense scenarios.
+\item Refined Privacy-Accuracy Trade-off: Optimize HE-ID noise adjustment (reduce for critical layers like convolutional kernels, increase for sensitive layers like fully connected layers), integrating with "parameter-aware" paradigm for hierarchical adaptation.
+\end{enumerate}
+In summary, this study clarifies FL's accuracy-resource-privacy trade-off, proposes a paradigm linking communication and tasks, and supports intelligent edge computing/smart healthcare.
+% 参考文献列表（置于文档末尾）
+\bibliographystyle{splncs04}
+\bibliography{references}
+\end{document}
